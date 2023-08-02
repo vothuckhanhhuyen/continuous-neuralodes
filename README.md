@@ -1,6 +1,4 @@
-# Nesterov Neural Ordinary Differential Equations
-
-This is the official implementation of Nesterov Neural Ordinary Differential Equations. 
+# Continuous Neural Ordinary Differential Equations
 
 ## Main requirements
 The code base in in Python. The following packages are required:
