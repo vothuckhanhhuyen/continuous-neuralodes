@@ -100,43 +100,73 @@ modelnames = [
     'NODE', 'ANODE', 'SONODE', 
     'HBNODE', 'GHBNODE', 
     'NesterovNODE', 
-    'GNesterovNODE'
+    'GNesterovNODE',
+    'RMSpropNODE',
+    'GRMSpropNODE',
+    'TOAES-NODE',
+    'GTOAES-NODE'
 ]
+
 modelclass = [
     NODE, NODE, SONODE, 
     HeavyBallNODE, HeavyBallNODE,
     NesterovNODE, 
-    NesterovNODE
+    NesterovNODE,
+    RMSpropNODE,
+    RMSpropNODE,
+    TOAES_NODE,
+    TOAES_NODE
 ]
+
 icparams = [
     (1, 1, 0), (2, 1, 1), (1, 2, 0), 
     (1, 2, 0), (1, 2, 0),
     (1, 2, 0), 
-    (1, 2, 0)
+    (1, 2, 0),
+    (1, 2, 0),
+    (1, 2, 0),
+    (1, 3, 0),
+    (1, 3, 0)
 ]  # out_channels, ddim, zpad
+
 dfparams = [
     (1,), (2,), (2, 1), 
     (1,), (1,), 
     (1,), 
+    (1,),
+    (1,),
+    (1,),    
+    (1,),
     (1,)
 ]
 hard_tanh = nn.Hardtanh(-0.25, 0.25)
+sigmoid_act = nn.Sigmoid()
+
 nintparams = [
     dict(), dict(), dict(), 
     dict(), dict(),
-    {'algebraic_from_differential' : True}, 
-    {'algebraic_from_differential': True, 'activation_h': hard_tanh}
+    {'nesterov_algebraic' : True}, 
+    {'nesterov_algebraic': True, 'activation_h': hard_tanh},
+    {'abs_second': True},
+    {'abs_second': True},
+    dict(),
+    dict()
 ]
+
 cellparams = [
     dict(), dict(), dict(), 
     dict(), {'corr': 0, 'actv_h': hard_tanh},
     {'use_h' : True},
-    {'use_h': True, 'corr': 0, 'actv_h': hard_tanh, 'actv_df': hard_tanh}
+    {'use_h': True, 'corr': 0, 'actv_h': hard_tanh, 'actv_df': hard_tanh},
+    {'alpha' : 1e8},
+    {'alpha' : 1e3, 'actv_dtheta' : hard_tanh, 'corr' : 0},
+    {'learnable_mu': True, 'mu': 1.0, 'corr': -100},
+    {'thetaact': sigmoid_act, 'actv_df': sigmoid_act, 'learnable_mu': True, 'mu': 1.0, 'corr': 0}
 ]
 model_list = []
 dim = 1
 
-plt.figure(figsize=(20, 20))
+plt.figure(figsize=(17, 11))
 axes = plt.gca()
 axes.tick_params(axis='x', labelsize=50)
 axes.tick_params(axis='y', labelsize=50)
@@ -148,16 +178,26 @@ colors = [
 	"navy",
 	"green",
 	"darkorange",
+    "darkorchid",
+	"gold",
+    "mediumblue",
+    "mediumseagreen"
 ]
+
 line_styles = [
 	':',
-	':',
-	'-.',
-	'-.',
-	'-.',
 	'--',
-	'--'
+	'--',
+	'-.',
+	'-.',
+	'-',
+	'-',
+    '-',
+    '-',
+    '-',
+    '-'
 ]
+
 line_widths = [
 	5,
 	5,
@@ -165,13 +205,17 @@ line_widths = [
 	5,
 	5,
 	7,
-	7
+	7,
+    7,
+    7,
+    7,
+    7
 ]
 # '''
 sizedata = []
 num_epochs = 40
 # plt.axis("scaled")
-for i in range(7):
+for i in range(11):
     print(i, modelnames[i])
     odesizelist = []
     for r in range(10):

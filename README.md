@@ -33,6 +33,10 @@ point-cloud/README.md
 ```
 walker2d/README.md
 ```
+### Human Activity
+```
+human_activity/README.md
+```
 ### Silverbox Initialization
 ```
 README-sb.md

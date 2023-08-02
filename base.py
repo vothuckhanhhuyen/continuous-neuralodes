@@ -12,6 +12,27 @@ def bmul(vec, mat, axis=0):
     return (mat * vec.expand_as(mat)).transpose(axis, -1)
 
 
+def bmul(vec, mat, axis=0):
+    mat = mat.transpose(axis, -1)
+    return (mat * vec.expand_as(mat)).transpose(axis, -1)
+
+class mu_net(nn.Module):
+	def __init__(self, input_dim, hid):
+		super(mu_net, self).__init__()
+		self.input_dim = input_dim
+		self.fc1 = nn.Linear(input_dim, hid)
+		self.fc2 = nn.Linear(hid, 1)
+		self.actv = nn.ReLU()
+	
+	def forward(self, x):
+		mu_out = self.fc1(x)
+		mu_out = self.actv(mu_out)
+		mu_out = self.fc2(mu_out)
+		mu_out = torch.pow(mu_out, 2)
+		return mu_out[0][0][0] # silverbox
+  		# return mu_out[0][0][0][0] # human activity
+
+
 class Tinvariant_NLayerNN(NLayerNN):
     def forward(self, t, x):
         return super(Tinvariant_NLayerNN, self).forward(x)
@@ -41,7 +62,7 @@ class dfwrapper(nn.Module):
 
 class NODEintegrate(nn.Module):
 
-    def __init__(self, df, shape=None, tol=1e-5, adjoint=True, evaluation_times=None, recf=None, algebraic_from_differential=None, differential_from_algebraic=None, activation_h=None, activation_output=None, time_requires_grad=True, verbose=True):
+    def __init__(self, df, shape=None, tol=1e-5, adjoint=True, evaluation_times=None, recf=None, algebraic_from_differential=None, differential_from_algebraic=None, activation_h=None, activation_output=None, abs_second=None, time_requires_grad=True, verbose=True):
         """
         Create an OdeRnnBase model
             x' = df(x)
@@ -69,6 +90,7 @@ class NODEintegrate(nn.Module):
         self.algebraic_from_differential = algebraic_from_differential
         self.activation_h = nn.Identity() if activation_h is None else activation_h
         self.activation_output = nn.Identity() if activation_output is None else activation_output
+        self.abs_second = abs_second
         if verbose:
             print("self.algebraic_from_differential:", self.algebraic_from_differential)
             print("self.activation_h for NODEintegrate:", self.activation_h)
@@ -94,6 +116,10 @@ class NODEintegrate(nn.Module):
             assert x0.shape[1:] == torch.Size(self.shape), \
                 'Input shape {} does not match with model shape {}'.format(x0.shape[1:], self.shape)
             x0 = x0.reshape(bsize, -1)
+            if self.abs_second:
+                theta, m = torch.split(x0, 1, dim=1)
+                m = torch.abs(m)
+                x0 = torch.cat((theta, m), dim=1)
             if self.recf:
                 reczeros = torch.zeros_like(x0[:, :1])
                 reczeros = repeat(reczeros, 'b 1 -> b c', c=self.recf.osize)
@@ -109,6 +135,10 @@ class NODEintegrate(nn.Module):
             else:
                 return out
         else:
+            if self.abs_second:
+                theta, m = torch.split(x0, 1, dim=1)
+                m = torch.abs(m)
+                x0 = torch.cat((theta, m), dim=1)
             out = odeint(self.df, x0, self.evaluation_times, rtol=self.tol, atol=self.tol)
             if self.algebraic_from_differential:
                 out = self.calc_algebraic_from_differential(out)
@@ -314,6 +344,73 @@ class NesterovNODE(NODE):
         self.elem_t = elem_t.view(*elem_t.shape, 1, 1)
 
 NNODE = NesterovNODE # Alias
+
+
+class RMSpropNODE(NODE):
+    def __init__(self, df, alpha=1e-1, actv_dtheta=None, corr=-100, corrf=True):
+        super().__init__(df)
+        self.alpha = alpha
+        self.corr = Parameter([corr], frozen=corrf)
+        self.sp = nn.Softplus()
+        self.actv_dtheta = nn.Identity() if actv_dtheta is None else actv_dtheta
+
+    def forward(self, t, x):
+        self.nfe += 1
+        theta, m = torch.split(x, 1, dim=1)
+
+        m = nn.Tanh()(torch.abs(m))
+        gtheta = self.df(t, theta) * self.df(t, m)
+        
+        dtheta = -self.actv_dtheta(gtheta)
+        dm = 1 / self.alpha * (self.actv_dtheta(gtheta ** 2) - 1) * m - self.sp(self.corr()) * theta
+        
+        out = torch.cat((dtheta, dm), dim=1)
+        if self.elem_t is None:
+            return out
+        else:
+            return self.elem_t * out
+
+    def update(self, elem_t):
+        self.elem_t = elem_t.view(*elem_t.shape, 1, 1)
+
+
+class TOAES_NODE(NODE):
+    def __init__(self, df, actv_df=None, thetaact=None, learnable_mu = False, mu=1.0, corr=-100):
+        super().__init__(df)
+        # Momentum parameter gamma
+        self.actv_df = nn.Identity() if actv_df is None else actv_df 
+        self.thetaact = nn.Identity() if thetaact is None else thetaact
+        self.mu = mu
+        self.learnable_mu = learnable_mu
+        self.sp = nn.Softplus()
+        self.corr = Parameter([corr], frozen=True)
+        # self.mu_net = mu_net(28, 10) # human activity
+        self.mu_net = mu_net(1, 10) # silverbox
+
+    def forward(self, t, x):
+        self.nfe += 1
+        h, p, q = torch.split(x, 1, dim=1)
+			
+        if self.learnable_mu:
+            self.mu = self.mu_net(x)
+            f = self.df(t, h + 1/torch.sqrt(self.mu) * p)
+            dh = self.thetaact(p)
+            dp = self.thetaact(q)
+            dq = -3 * torch.sqrt(self.mu) * q - 2 * self.mu * p - torch.sqrt(self.mu) * self.actv_df(f) - self.sp(self.corr()) * h
+            out = torch.cat((dh, dp, dq), dim=1)
+            
+        else:
+            f = self.df(t, h + 1/np.sqrt(self.mu) * p)
+            dh = self.thetaact(p)
+            dp = self.thetaact(q)
+            dq = -3 * np.sqrt(self.mu) * q - 2 * self.mu * p - np.sqrt(self.mu) * self.actv_df(f) - self.sp(self.corr()) * h
+            out = torch.cat((dh, dp, dq), dim=1)
+        
+        if self.elem_t is None:
+            return out
+        else:
+            return self.elem_t * out
+    
 
 class ODE_RNN(nn.Module):
     def __init__(self, ode, rnn, nhid, ic, rnn_out=False, both=False, tol=1e-7):

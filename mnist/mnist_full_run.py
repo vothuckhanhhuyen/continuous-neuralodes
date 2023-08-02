@@ -189,6 +189,20 @@ def model_gen(name, gpu, **kwargs):
         layer = NODElayer(NesterovNODE(DF(dim, nhid), actv_h=hard_tanh_half, actv_df=hard_tanh_half, corr=2.0, corrf=False, use_h=True, sign=-1), algebraic_from_differential=True, differential_from_algebraic=True, activation_h=hard_tanh_half, time_requires_grad=False, evaluation_times=evaluation_times,  **kwargs)
         model = nn.Sequential(hbnode_initial_velocity(1, dim, nhid),
                               layer, predictionlayer(dim, truncate=True))
+    elif name == 'rmspropnode':
+        dim = 5
+        nhid = 50
+        evaluation_times = torch.Tensor([1, 2]).to(device=gpu)
+        layer = NODElayer(RMSpropNODE(DF(dim, nhid), alpha=1e4), abs_second=True, time_requires_grad=False, evaluation_times=evaluation_times, **kwargs)
+        model = nn.Sequential(hbnode_initial_velocity(1, dim, nhid),
+                              layer, predictionlayer(dim, truncate=True))
+    elif name == 'grmspropnode':
+        dim = 5
+        nhid = 50
+        evaluation_times = torch.Tensor([1, 2]).to(device=gpu)
+        layer = NODElayer(RMSpropNODE(DF(dim, nhid), alpha=1e3, actv_dtheta=nn.Sigmoid(), corr=0.1), abs_second=True, time_requires_grad=False, evaluation_times=evaluation_times, **kwargs)
+        model = nn.Sequential(hbnode_initial_velocity(1, dim, nhid),
+                              layer, predictionlayer(dim, truncate=True))
     else:
         print('model {} not supported.'.format(name))
         model = None
